@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Management System</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Login Section -->
+    <div id="login" class="login-container">
+        <div class="login-form">
+            <h2>Login</h2>
+            <input type="text" id="username" placeholder="Username" required>
+            <input type="password" id="password" placeholder="Password" required>
+            <button onclick="handleLogin()">Login</button>
+        </div>
+    </div>
+
+    <!-- Main App (Hidden Initially) -->
+    <div id="app" class="hidden">
+        <div class="sidebar">
+            <h2>Student Management</h2>
+            <ul>
+                <li onclick="showSection('dashboard')">Dashboard</li>
+                <li onclick="showSection('add-student')">Add Student</li>
+                <li onclick="showSection('view-students')">View Students</li>
+                <li onclick="showSection('delete-students')">Delete Students</li>
+                <li onclick="showSection('reports')">Reports</li>
+                <li onclick="handleLogout()">Log Out</li>
+            </ul>
+        </div>
+        <div class="main-content">
+            <!-- Dashboard -->
+            <div id="dashboard" class="content-section">
+                <h2>Dashboard</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Grade</th>
+                            <th>Courses</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="student-table"></tbody>
+                </table>
+            </div>
+
+            <!-- Add Student -->
+            <div id="add-student" class="content-section hidden">
+                <h2>Add Students</h2>
+                <div id="student-entries">
+                    <div class="student-entry" data-index="0">
+                        <input type="text" class="student-name" placeholder="Name" required>
+                        <input type="text" class="student-grade" placeholder="Grade" required>
+                        <input type="text" class="student-courses" placeholder="Courses (comma-separated)" required>
+                    </div>
+                </div>
+                <button onclick="addStudentEntry()">Add Another Student</button>
+                <button onclick="submitStudents()">Submit All Students</button>
+            </div>
+
+            <!-- View Students -->
+            <div id="view-students" class="content-section hidden">
+                <h2>View Students</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Grade</th>
+                            <th>Courses</th>
+                        </tr>
+                    </thead>
+                    <tbody id="view-student-table"></tbody>
+                </table>
+            </div>
+
+            <!-- Delete Students -->
+            <div id="delete-students" class="content-section hidden">
+                <h2>Delete Students</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Select</th>
+                            <th>ID</th>
+                            <th>Name</th>
+                        </tr>
+                    </thead>
+                    <tbody id="delete-student-table"></tbody>
+                </table>
+                <button onclick="deleteSelectedStudents()">Delete Selected</button>
+            </div>
+
+            <!-- Reports -->
+            <div id="reports" class="content-section hidden">
+                <h2>Reports</h2>
+                <p>Download a PDF of all student details.</p>
+                <button onclick="downloadStudentReport()">Download PDF</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let studentEntryCount = 1;
+        const API_BASE_URL = 'http://localhost:3000';
+
+        async function handleLogin() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            try {
+                const response = await fetch(`${API_BASE_URL}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    localStorage.setItem('token', data.token);
+                    document.getElementById('login').classList.add('hidden');
+                    document.getElementById('app').classList.remove('hidden');
+                    showSection('dashboard');
+                } else {
+                    alert(data.message || 'Invalid credentials');
+                }
+            } catch (error) {
+                alert('Login failed');
+            }
+        }
+
+        function handleLogout() {
+            localStorage.removeItem('token');
+            document.getElementById('app').classList.add('hidden');
+            document.getElementById('login').classList.remove('hidden');
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+        }
+
+        function showSection(sectionId) {
+            document.querySelectorAll('.content-section').forEach(section => {
+                section.classList.add('hidden');
+            });
+            document.getElementById(sectionId).classList.remove('hidden');
+            if (sectionId === 'dashboard') updateDashboard();
+            if (sectionId === 'view-students') updateViewStudents();
+            if (sectionId === 'delete-students') updateDeleteStudents();
+        }
+
+        function addStudentEntry() {
+            const entries = document.getElementById('student-entries');
+            const newEntry = document.createElement('div');
+            newEntry.classList.add('student-entry');
+            newEntry.setAttribute('data-index', studentEntryCount++);
+            newEntry.innerHTML = `
+                <input type="text" class="student-name" placeholder="Name" required>
+                <input type="text" class="student-grade" placeholder="Grade" required>
+                <input type="text" class="student-courses" placeholder="Courses (comma-separated)" required>
+            `;
+            entries.appendChild(newEntry);
+        }
+
+        async function submitStudents() {
+            const entries = document.querySelectorAll('.student-entry');
+            let newStudents = [];
+            let allValid = true;
+
+            entries.forEach(entry => {
+                const name = entry.querySelector('.student-name').value;
+                const grade = entry.querySelector('.student-grade').value;
+                const courses = entry.querySelector('.student-courses').value.split(',').map(c => c.trim());
+                if (name && grade && courses.length > 0) {
+                    newStudents.push({ name, grade, courses });
+                } else {
+                    allValid = false;
+                }
+            });
+
+            if (!allValid || newStudents.length === 0) {
+                alert('Please fill all fields for all students.');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/students`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    },
+                    body: JSON.stringify(newStudents)
+                });
+                if (response.ok) {
+                    document.getElementById('student-entries').innerHTML = `
+                        <div class="student-entry" data-index="0">
+                            <input type="text" class="student-name" placeholder="Name" required>
+                            <input type="text" class="student-grade" placeholder="Grade" required>
+                            <input type="text" class="student-courses" placeholder="Courses (comma-separated)" required>
+                        </div>
+                    `;
+                    studentEntryCount = 1;
+                    alert('Students added successfully!');
+                    showSection('dashboard');
+                } else {
+                    alert('Failed to add students');
+                }
+            } catch (error) {
+                alert('Error submitting students');
+            }
+        }
+
+        async function updateDashboard() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/students`, {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                });
+                const students = await response.json();
+                const tbody = document.getElementById('student-table');
+                tbody.innerHTML = '';
+                students.forEach(student => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${student.id}</td>
+                        <td>${student.name}</td>
+                        <td>${student.grade}</td>
+                        <td>${student.courses.join(', ')}</td>
+                        <td>
+                            <button onclick="editStudent(${student.id})">Edit</button>
+                            <button onclick="deleteStudent(${student.id})">Delete</button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch (error) {
+                alert('Error loading dashboard');
+            }
+        }
+
+        async function updateViewStudents() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/students`, {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                });
+                const students = await response.json();
+                const tbody = document.getElementById('view-student-table');
+                tbody.innerHTML = '';
+                students.forEach(student => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${student.id}</td>
+                        <td>${student.name}</td>
+                        <td>${student.grade}</td>
+                        <td>${student.courses.join(', ')}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch (error) {
+                alert('Error loading students');
+            }
+        }
+
+        async function updateDeleteStudents() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/students`, {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                });
+                const students = await response.json();
+                const tbody = document.getElementById('delete-student-table');
+                tbody.innerHTML = '';
+                students.forEach(student => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td><input type="checkbox" value="${student.id}"></td>
+                        <td>${student.id}</td>
+                        <td>${student.name}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch (error) {
+                alert('Error loading students for deletion');
+            }
+        }
+
+        async function deleteStudent(id) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/students/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                });
+                if (response.ok) {
+                    updateDashboard();
+                } else {
+                    alert('Failed to delete student');
+                }
+            } catch (error) {
+                alert('Error deleting student');
+            }
+        }
+
+        async function deleteSelectedStudents() {
+            const checkboxes = document.querySelectorAll('#delete-student-table input[type="checkbox"]:checked');
+            const idsToDelete = Array.from(checkboxes).map(cb => parseInt(cb.value));
+            if (idsToDelete.length === 0) {
+                alert('No students selected');
+                return;
+            }
+
+            try {
+                await Promise.all(idsToDelete.map(id => 
+                    fetch(`${API_BASE_URL}/students/${id}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                    })
+                ));
+                updateDeleteStudents();
+                alert('Selected students deleted');
+            } catch (error) {
+                alert('Error deleting students');
+            }
+        }
+
+        async function editStudent(id) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/students`, {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                });
+                const students = await response.json();
+                const student = students.find(s => s.id === id);
+                if (!student) return;
+
+                const name = prompt('Enter new name:', student.name);
+                const grade = prompt('Enter new grade:', student.grade);
+                const courses = prompt('Enter new courses (comma-separated):', student.courses.join(', '));
+                if (name && grade && courses) {
+                    const updatedStudent = {
+                        name,
+                        grade,
+                        courses: courses.split(',').map(c => c.trim())
+                    };
+                    const updateResponse = await fetch(`${API_BASE_URL}/students/${id}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        },
+                        body: JSON.stringify(updatedStudent)
+                    });
+                    if (updateResponse.ok) {
+                        updateDashboard();
+                    } else {
+                        alert('Failed to update student');
+                    }
+                }
+            } catch (error) {
+                alert('Error editing student');
+            }
+        }
+
+        async function downloadStudentReport() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/students`, {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                });
+                const students = await response.json();
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                doc.text('Student Management System - Report', 10, 10);
+                let y = 20;
+
+                students.forEach(student => {
+                    doc.text(`ID: ${student.id}`, 10, y);
+                    doc.text(`Name: ${student.name}`, 10, y + 10);
+                    doc.text(`Grade: ${student.grade}`, 10, y + 20);
+                    doc.text(`Courses: ${student.courses.join(', ')}`, 10, y + 30);
+                    y += 40;
+                    if (y > 270) {
+                        doc.addPage();
+                        y = 10;
+                    }
+                });
+
+                doc.save('student_report.pdf');
+            } catch (error) {
+                alert('Error generating report');
+            }
+        }
+    </script>
+</body>
+</html>
